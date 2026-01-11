@@ -21,10 +21,17 @@ resource "aws_iam_role_policy_attachment" "example-AmazonEKSClusterPolicy" {
   role       = aws_iam_role.example.name
 }
 
+# ✅ ADDED — REQUIRED FOR EKS CLUSTER (THIS IS THE REAL FIX)
+resource "aws_iam_role_policy_attachment" "example-AmazonEKSVPCResourceController" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+  role       = aws_iam_role.example.name
+}
+
 #get vpc data
 data "aws_vpc" "default" {
   default = true
 }
+
 #get public subnets for cluster
 data "aws_subnets" "public" {
   filter {
@@ -32,19 +39,19 @@ data "aws_subnets" "public" {
     values = [data.aws_vpc.default.id]
   }
 }
+
 #cluster provision
 resource "aws_eks_cluster" "example" {
-  name     = "EKS_CLUSTER"
+  name     = "EKS_CLUSTER-2"
   role_arn = aws_iam_role.example.arn
 
   vpc_config {
     subnet_ids = data.aws_subnets.public.ids
   }
 
-  # Ensure that IAM Role permissions are created before and deleted after EKS Cluster handling.
-  # Otherwise, EKS will not be able to properly delete EKS managed EC2 infrastructure such as Security Groups.
   depends_on = [
     aws_iam_role_policy_attachment.example-AmazonEKSClusterPolicy,
+    aws_iam_role_policy_attachment.example-AmazonEKSVPCResourceController
   ]
 }
 
@@ -52,6 +59,7 @@ resource "aws_iam_role" "example1" {
   name = "eks-node-group-cloud"
 
   assume_role_policy = jsonencode({
+    Version = "2012-10-17" # ✅ SMALL FIX (BEST PRACTICE)
     Statement = [{
       Action = "sts:AssumeRole"
       Effect = "Allow"
@@ -59,7 +67,6 @@ resource "aws_iam_role" "example1" {
         Service = "ec2.amazonaws.com"
       }
     }]
-    Version = "2012-10-17"
   })
 }
 
@@ -90,10 +97,9 @@ resource "aws_eks_node_group" "example" {
     max_size     = 2
     min_size     = 1
   }
-  instance_types = ["t2.medium"]
 
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  instance_types = ["m7i-flex.large"]
+
   depends_on = [
     aws_iam_role_policy_attachment.example-AmazonEKSWorkerNodePolicy,
     aws_iam_role_policy_attachment.example-AmazonEKS_CNI_Policy,
